@@ -4,8 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from graph_loader import load_documents_and_create_graph
-from langchain.chat_models import ChatOpenAI
-from langchain_neo4j import Neo4jGraph
+from langchain_openai import ChatOpenAI
+from langchain_community.graphs import Neo4jGraph  # เปลี่ยนตรงนี้
 from langchain.chains import GraphCypherQAChain
 import os
 
@@ -24,7 +24,12 @@ graph = Neo4jGraph(
 
 # Build graph from data/
 load_documents_and_create_graph(llm, graph, folder_path="docs")
-qa_chain = GraphCypherQAChain.from_llm(llm, graph=graph, verbose=True)
+qa_chain = GraphCypherQAChain.from_llm(
+    llm,
+    graph=graph,
+    verbose=True,
+    allow_dangerous_requests=True  # เพิ่มบรรทัดนี้
+)
 
 # API model
 class Question(BaseModel):

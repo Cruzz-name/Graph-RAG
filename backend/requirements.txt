@@ -1,4 +1,3 @@
-langchain
 langchain-community
 langchain-experimental
 openai
@@ -11,3 +10,4 @@ unstructured
 pdfminer.six
 python-docx
 pandas
+pi-heif
