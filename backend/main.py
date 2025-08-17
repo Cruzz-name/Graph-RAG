@@ -4,8 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from graph_loader import load_documents_and_create_graph
-from langchain_openai import ChatOpenAI
-from langchain_community.graphs import Neo4jGraph  # เปลี่ยนตรงนี้
+from langchain_groq import ChatGroq
+from langchain_community.graphs import Neo4jGraph
 from langchain.chains import GraphCypherQAChain
 import os
 
@@ -15,7 +15,11 @@ app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # LLM & Graph Setup
-llm = ChatOpenAI(temperature=0, api_key=os.getenv("OPENAI_API_KEY"))
+llm = ChatGroq(
+    temperature=0,
+    groq_api_key=os.getenv("GROQ_API_KEY"),
+    model_name="llama3-8b-8192"
+)
 graph = Neo4jGraph(
     url=os.getenv("NEO4J_URI"),
     username=os.getenv("NEO4J_USER"),

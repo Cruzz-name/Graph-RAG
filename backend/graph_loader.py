@@ -1,81 +1,88 @@
 import os
-from langchain_community.document_loaders import DirectoryLoader, TextLoader, CSVLoader
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.graphs import Neo4jGraph
-from langchain_community.vectorstores import FAISS
+import time
+from langchain_huggingface import HuggingFaceEmbeddings, HuggingFacePipeline
+from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
+import torch
+from langchain_experimental.graph_transformers.llm import LLMGraphTransformer
+from langchain_community.docstore.document import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from pdfminer.high_level import extract_text
+from tqdm import tqdm
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# เชื่อมต่อ Neo4j
-graph = Neo4jGraph(
-    url=os.getenv("NEO4J_URI"),
-    username=os.getenv("NEO4J_USER"),
-    password=os.getenv("NEO4J_PASSWORD")
-)
+def create_knowledge_graph_from_file(file_path):
+    """
+    Reads a text file, splits it into chunks, embeds each chunk,
+    creates a knowledge graph using Llama3 via HuggingFacePipeline,
+    and prints the resulting graph documents.
+    """
 
-# ตัวอย่าง path เอกสารในเครื่อง
-docs_path = "./docs"
+    # 1️⃣ อ่านไฟล์
+    with open(file_path, "r", encoding="utf-8") as f:
+        text_content = f.read()
 
-# ฟังก์ชันโหลดเอกสารและสร้าง Knowledge Graph
-def load_documents_and_create_graph(llm, graph, folder_path="docs"):
-    documents = []
-    # ใช้ folder_path เพื่อโหลดเอกสาร
-    loader = DirectoryLoader(folder_path, glob="**/*.txt", loader_cls=TextLoader)
-    docs = loader.load()
-    documents.extend(docs)
+    # 2️⃣ แบ่งข้อความเป็น chunks (ลดขนาดต่อ chunk เพื่อลด error)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=256, chunk_overlap=32)
+    chunks = splitter.split_text(text_content)
+    documents = [Document(page_content=chunk) for chunk in chunks]
 
+    print(f"Total chunks to embed: {len(documents)}")
 
-    for file in os.listdir(docs_path):
-        file_path = os.path.join(docs_path, file)
-        if file.endswith(".txt"):
-            loader = TextLoader(file_path, encoding="utf-8")
-            docs = loader.load()
-            documents.extend(docs)
-        elif file.endswith(".pdf"):
-            # ใช้ pdfminer.six แปลง PDF เป็นข้อความ
-            try:
-                text = extract_text(file_path)
-                if text:
-                    # สร้างเอกสารในรูปแบบที่เหมาะสมกับ LangChain
-                    from langchain.schema import Document
-                    doc = Document(page_content=text, metadata={"source": file_path})
-                    documents.append(doc)
-                else:
-                    print(f"❌ No text extracted from: {file}")
-            except Exception as e:
-                print(f"❌ Error extracting PDF {file}: {e}")
-        elif file.endswith(".csv"):
-            loader = CSVLoader(file_path)
-            docs = loader.load()
-            documents.extend(docs)
-        else:
-            print(f"❌ Unsupported file format: {file}")
-            continue
-
-    print(f"✅ Loaded {len(documents)} documents")
-
-    # แบ่งเอกสาร
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200
-    )
-    split_docs = splitter.split_documents(documents)
-
-    # สร้าง embedding model
-    embeddings = HuggingFaceEmbeddings(
+    # 3️⃣ สร้าง embedding model
+    embeddings_model = HuggingFaceEmbeddings(
         model_name="BAAI/bge-m3",
-        model_kwargs={"device": "cpu"}
+        model_kwargs={"device": "cpu"}  # ใช้ "cuda" ถ้ามี GPU
     )
 
-    # สร้าง vector store (FAISS)
-    vectorstore = FAISS.from_documents(split_docs, embeddings)
+    # 4️⃣ ทำ embedding แต่ละ chunk
+    embedded_chunks = []
+    print("\nEmbedding chunks...")
+    for doc in tqdm(documents, desc="Embedding chunks"):
+        try:
+            vector = embeddings_model.embed_query(doc.page_content)
+            embedded_chunks.append(vector)
+            time.sleep(0.05)  # ลดความเร็วเล็กน้อย
+        except Exception as e:
+            print(f"Error embedding chunk: {e}")
 
-    # (ถ้ามีการสร้าง triplets → ใส่ logic เพิ่มตรงนี้)
-    print("✅ Vector store created (FAISS)")
-    return vectorstore, graph
+    print(f"Successfully embedded {len(embedded_chunks)} chunks.")
 
-# ตัวอย่างการใช้ HuggingFaceEmbeddings แทน HuggingFaceBgeEmbeddings
-# embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    # 5️⃣ โหลด Llama 3 model ผ่าน HuggingFacePipeline
+    print("\nLoading Llama 3 model...")
+    model_name = "meta-llama/Llama-3-8B-Instruct"
+    pipe = pipeline(
+        "text-generation",
+        model=model_name,
+        model_kwargs={"torch_dtype": torch.bfloat16},
+        device_map="auto",  # auto เลือก GPU ถ้ามี
+    )
+    llm = HuggingFacePipeline(pipeline=pipe)
+    print("Llama 3 model loaded.")
+
+    # 6️⃣ สร้าง LLMGraphTransformer
+    llm_transformer = LLMGraphTransformer(llm=llm)
+
+    # 7️⃣ แปลงเอกสารแต่ละ chunk เป็น Graph Document ทีละ chunk
+    print("\nCreating knowledge graph...")
+    graph_documents = []
+    for doc in tqdm(documents, desc="Creating graph from documents"):
+        try:
+            # ส่งทีละ Document เพื่อลด error
+            graph_doc = llm_transformer.convert_to_graph_documents([doc])
+            graph_documents.extend(graph_doc)
+            time.sleep(0.05)
+        except Exception as e:
+            print(f"Error converting to graph: {e}")
+
+    print("\nKnowledge Graph created successfully.")
+    print("\nGraph Documents Summary:")
+    for i, doc in enumerate(graph_documents, start=1):
+        print(f"\nGraph Document #{i}")
+        print("Nodes:", doc.nodes)
+        print("Relationships:", doc.relationships)
+        print("-" * 40)
+
+if __name__ == "__main__":
+    file_path = "C:\\test_graph_rag\\Graph-RAG\\backend\\docs\\matcha.txt"
+    create_knowledge_graph_from_file(file_path)
