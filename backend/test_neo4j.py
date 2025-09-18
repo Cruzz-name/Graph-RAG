@@ -1,4 +1,4 @@
-from langchain_neo4j import Neo4jGraph
+from langchain_community.graphs import Neo4jGraph
 from dotenv import load_dotenv
 import os
 
@@ -10,6 +10,6 @@ graph = Neo4jGraph(
     password=os.getenv("NEO4J_PASSWORD")
 )
 
-print("✅ Connected to Neo4j!")
+print("Connected to Neo4j!")
 print("Sample Nodes:")
 print(graph.query("MATCH (n) RETURN n LIMIT 5"))

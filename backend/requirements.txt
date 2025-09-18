@@ -1,15 +1,36 @@
+# FastAPI & Server
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+
+# Environment variables
+python-dotenv==1.0.1
+
+# LangChain Core - Let pip resolve the compatible versions
+langchain
+langchain-core
 langchain-community
-langchain-experimental
-openai
-neo4j
-fastapi
-uvicorn
-python-dotenv
-sentence-transformers
-unstructured
-pdfminer.six
-python-docx
-pandas
-pi-heif
 langchain-huggingface
-langchain-openai
+langchain-neo4j
+
+# Embeddings / Models
+sentence-transformers==2.7.0
+transformers==4.43.3
+huggingface-hub==0.23.4
+
+# Document loaders / Text splitters
+unstructured==0.18.13
+
+# Neo4j connector
+neo4j==5.25.0
+
+# Schema validation
+pydantic==2.8.2
+
+# Numpy version for compatibility
+numpy<2.0
+
+# Progress tracking
+tqdm==4.66.4
+
+# JSON Repair
+json-repair==0.44.1
